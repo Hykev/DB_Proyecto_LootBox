@@ -86,3 +86,4 @@ def seed_cities():
             cursor.close()
         if conn:
             conn.close()
+#
