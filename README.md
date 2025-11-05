@@ -10,7 +10,7 @@ La app permite conectarse a la base local `BeautyControl` (creada desde MySQL Wo
 
 Cada integrante del equipo necesita tener instalado:
 
-- **Python 3.10+**
+- **Python 3.11**
 - **MySQL Server 8** (o compatible)  
 - **MySQL Workbench** (para ejecutar el script .sql)
 - **Git** + **GitHub Desktop** (para clonar el repositorio)
@@ -45,13 +45,18 @@ Dentro de la carpeta del proyecto (raíz, donde está `rxconfig.py`):
 2. Crear el entorno virtual:
 
 ```bash
-python -m venv .venv
+py -3.11 -m venv .venv
 ```
 
 3. Activar el entorno virtual (Windows):
 
 ```bash
 .\.venv\Scripts\activate
+```
+Si no funciona intentar con este:
+
+```bash
+source .venv/Scripts/activate
 ```
 
 Si se activó bien, deberías ver algo como `(.venv)` al inicio de la línea de la terminal.
