@@ -250,11 +250,6 @@ def sidebar() -> rx.Component:
     return rx.box(
         rx.vstack(
             lootbox_logo(),
-            rx.text(
-                "Panel LootBox",
-                font_size="0.85rem",
-                color="gray.8",
-            ),
             rx.divider(margin_y="0.5rem"),
             nav_button("Resumen", "resumen", "🏠"),
             nav_button("Clientes", "customers", "👤"),
@@ -331,7 +326,7 @@ def login_page() -> rx.Component:
                             color="gray.9",
                         ),
                         rx.text(
-                            "Inicia sesión con tu usuario de administrador para continuar.",
+                            "Tu tienda de coleccionables.",
                             font_size="0.9rem",
                             color="gray.8",
                         ),
@@ -369,11 +364,6 @@ def login_page() -> rx.Component:
                                 color="red",
                                 font_size="0.85rem",
                             ),
-                        ),
-                        rx.text(
-                            "Tip: por ahora, usuario: admin / contraseña: admin",
-                            font_size="0.75rem",
-                            color="gray.8",
                         ),
                         spacing="3",
                         width="100%",

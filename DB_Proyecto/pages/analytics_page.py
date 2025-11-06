@@ -1,333 +1,582 @@
 import reflex as rx
 from .. import db
-import json
-
 
 # ==========================================================
-# Vistas disponibles (deben existir en MySQL)
+# Constantes de vistas analíticas (basadas en las vistas SQL)
 # ==========================================================
 
-ANALYTICS_VIEWS = [
-    "vw_ventas_por_categoria",
-    "vw_ticket_promedio_mensual",
-    "vw_sla_envios",
-    "vw_tasa_devoluciones_mensual",
-    "vw_clientes_ltv_alto",
-    "vw_inventario_producto_bodega",
-    "vw_clientes_por_pais",
-    "vw_abc_productos",
+VIEW_OPTIONS = [
+    {
+        "value": "vw_ventas_por_categoria",
+        "label": "Ventas por categoría",
+        "description": "Suma de ventas (Q) agrupadas por categoría de producto.",
+    },
+    {
+        "value": "vw_ticket_promedio_mensual",
+        "label": "Ticket promedio mensual",
+        "description": "Promedio de total de orden por mes.",
+    },
+    {
+        "value": "vw_sla_envios",
+        "label": "SLA de envíos",
+        "description": "Días entre fecha de envío y fecha de entrega por envío.",
+    },
+    {
+        "value": "vw_tasa_devoluciones_mensual",
+        "label": "Tasa de devoluciones mensual",
+        "description": "Relación entre órdenes y devoluciones por mes.",
+    },
+    {
+        "value": "vw_clientes_ltv_alto",
+        "label": "Clientes con LTV alto",
+        "description": "Clientes con Lifetime Value mayor al umbral definido.",
+    },
+    {
+        "value": "vw_inventario_producto_bodega",
+        "label": "Inventario por producto y bodega",
+        "description": "Stock actual por producto y bodega.",
+    },
+    {
+        "value": "vw_clientes_por_pais",
+        "label": "Clientes por país",
+        "description": "Número de clientes agrupados por país.",
+    },
+    {
+        "value": "vw_abc_productos",
+        "label": "ABC de productos",
+        "description": "Clasificación ABC según participación en ventas.",
+    },
 ]
 
-
 # ==========================================================
-# Consultas avanzadas predefinidas
+# Consultas avanzadas (mínimo 3, luego pueden agregar más)
 # ==========================================================
 
-ANALYTICS_QUERIES = {
-    "ticket_promedio_por_mes": {
-        "label": "Ticket promedio por mes (JOIN ordenes + items)",
-        "sql": """
-            SELECT
-                YEAR(o.`Fecha de la orden`) AS anio,
-                MONTH(o.`Fecha de la orden`) AS mes,
-                COUNT(DISTINCT o.ID) AS total_ordenes,
-                SUM(o.Total) AS total_ingresos,
-                AVG(o.Total) AS ticket_promedio
-            FROM Ordenes o
-            GROUP BY YEAR(o.`Fecha de la orden`), MONTH(o.`Fecha de la orden`)
-            ORDER BY anio, mes;
-        """,
-    },
+ADVANCED_QUERIES = {
     "clientes_multipais": {
-        "label": "Clientes multipaís (ordenan desde más de un país)",
+        "label": "Clientes multipaís",
+        "description": "Clientes con compras registradas en más de un país.",
         "sql": """
             SELECT
-                c.ID AS customer_id,
-                c.Nombre,
-                c.Apellido,
-                COUNT(DISTINCT co.ID) AS paises_distintos
+              c.ID AS customer_id,
+              c.Nombre,
+              c.Apellido,
+              COUNT(DISTINCT co.ID) AS paises_distintos
             FROM Customers c
             JOIN Cities ci ON ci.ID = c.Cities_ID
             JOIN Countries co ON co.ID = ci.Countries_ID
             JOIN Ordenes o ON o.Customers_ID = c.ID
             GROUP BY c.ID, c.Nombre, c.Apellido
-            HAVING COUNT(DISTINCT co.ID) > 1
-            ORDER BY paises_distintos DESC;
-        """,
-    },
-    "proveedor_dominante_por_categoria": {
-        "label": "Proveedor dominante por categoría (>60% de ventas)",
-        "sql": """
-            SELECT
-                cat.ID AS categoria_id,
-                cat.Nombre AS categoria_nombre,
-                s.ID AS supplier_id,
-                s.`Nombre de proveedor` AS supplier_nombre,
-                SUM(oi.Cantidad * oi.`Precio por unidad`) AS ventas_proveedor_categoria,
-                SUM(SUM(oi.Cantidad * oi.`Precio por unidad`)) OVER (PARTITION BY cat.ID) AS ventas_categoria_total,
-                ROUND(
-                    100 * SUM(oi.Cantidad * oi.`Precio por unidad`)
-                    / SUM(SUM(oi.Cantidad * oi.`Precio por unidad`)) OVER (PARTITION BY cat.ID),
-                    2
-                ) AS porcentaje_participacion
-            FROM Order_items oi
-            JOIN Products p ON p.ID = oi.Products_ID
-            JOIN Categories cat ON cat.ID = p.Categories_ID
-            JOIN Suppliers s ON s.ID = p.Suppliers_ID
-            GROUP BY cat.ID, cat.Nombre, s.ID, s.`Nombre de proveedor`
-            HAVING porcentaje_participacion > 60
-            ORDER BY cat.ID, porcentaje_participacion DESC;
+            HAVING COUNT(DISTINCT co.ID) > 1;
         """,
     },
     "clientes_churn_180": {
         "label": "Clientes churn (>180 días sin comprar)",
+        "description": "Clientes cuya última compra fue hace más de 180 días.",
         "sql": """
             SELECT
-                c.ID AS customer_id,
-                c.Nombre,
-                c.Apellido,
-                MAX(o.`Fecha de la orden`) AS ultima_compra,
-                DATEDIFF(CURDATE(), MAX(o.`Fecha de la orden`)) AS dias_desde_ultima_compra
+              c.ID AS customer_id,
+              c.Nombre,
+              c.Apellido,
+              MAX(o.`Fecha de la orden`) AS ultima_compra,
+              DATEDIFF(CURDATE(), MAX(o.`Fecha de la orden`)) AS dias_desde_ultima_compra
             FROM Customers c
             LEFT JOIN Ordenes o ON o.Customers_ID = c.ID
             GROUP BY c.ID, c.Nombre, c.Apellido
-            HAVING dias_desde_ultima_compra >= 180
-            ORDER BY dias_desde_ultima_compra DESC;
+            HAVING MAX(o.`Fecha de la orden`) IS NOT NULL
+              AND DATEDIFF(CURDATE(), MAX(o.`Fecha de la orden`)) > 180;
         """,
     },
-    "abc_productos": {
-        "label": "ABC de productos (A=80%, B=15%, C=5%)",
+    "abc_productos_query": {
+        "label": "ABC de productos (detalle)",
+        "description": "Consulta directa sobre la vista vw_abc_productos.",
         "sql": """
             SELECT
-                p.ID AS product_id,
-                p.`Nombre del producto`,
-                SUM(oi.Cantidad * oi.`Precio por unidad`) AS ventas_producto,
-                SUM(SUM(oi.Cantidad * oi.`Precio por unidad`)) OVER () AS ventas_totales,
-                ROUND(
-                    100 * SUM(oi.Cantidad * oi.`Precio por unidad`)
-                        / SUM(SUM(oi.Cantidad * oi.`Precio por unidad`)) OVER (),
-                    2
-                ) AS porcentaje_acumulado,
-                CASE
-                    WHEN
-                        ROUND(
-                            100 * SUM(oi.Cantidad * oi.`Precio por unidad`)
-                                / SUM(SUM(oi.Cantidad * oi.`Precio por unidad`)) OVER (),
-                            2
-                        ) <= 80
-                    THEN 'A'
-                    WHEN
-                        ROUND(
-                            100 * SUM(oi.Cantidad * oi.`Precio por unidad`)
-                                / SUM(SUM(oi.Cantidad * oi.`Precio por unidad`)) OVER (),
-                            2
-                        ) <= 95
-                    THEN 'B'
-                    ELSE 'C'
-                END AS clasificacion_abc
-            FROM Order_items oi
-            JOIN Products p ON p.ID = oi.Products_ID
-            GROUP BY p.ID, p.`Nombre del producto`
-            ORDER BY ventas_producto DESC;
+              product_id,
+              `Nombre del producto`,
+              total_ventas,
+              acumulado,
+              total_general,
+              categoria_abc
+            FROM vw_abc_productos;
         """,
     },
+    # Aquí pueden agregar más consultas avanzadas para el proyecto
 }
 
 
 # ==========================================================
-# STATE: Analytics
+# Estado de Analítica
 # ==========================================================
 
 class AnalyticsState(rx.State):
-    """Estado para manejar vistas y consultas avanzadas."""
+    """Maneja vistas analíticas y consultas avanzadas."""
 
-    # --- Vistas ---
-    selected_view: str = ANALYTICS_VIEWS[0]
+    # --- Vistas analíticas ---
+    selected_view: str = "vw_ventas_por_categoria"
+    view_all_rows: list[dict] = []
     view_rows: list[dict] = []
     view_columns: list[str] = []
+    view_page: int = 0
+    view_page_size: int = 15
+    view_message: str = ""
 
-    # --- Consultas ---
-    selected_query_key: str = "ticket_promedio_por_mes"
-    selected_query_label: str = ANALYTICS_QUERIES["ticket_promedio_por_mes"]["label"]
-    query_rows_json: str = ""
-    explain_rows: list[dict] = []
+    # --- Consultas avanzadas ---
+    selected_query: str = "clientes_multipais"
+    query_all_rows: list[dict] = []
+    query_rows: list[dict] = []
+    query_columns: list[str] = []
+    query_page: int = 0
+    query_page_size: int = 15
     query_message: str = ""
 
-    # ================== VISTAS ==================
+    # --- Plan de ejecución (EXPLAIN) ---
+    plan_rows: list[dict] = []
+    plan_columns: list[str] = []
 
-    def load_view(self):
-        """Carga la vista seleccionada desde la BD y define columnas."""
-        self.view_rows = db.get_view_data(self.selected_view)
-        if self.view_rows:
-            # Tomamos las llaves del primer registro como nombres de columnas
-            self.view_columns = list(self.view_rows[0].keys())
+    # ======================================================
+    # Helpers internos de paginación
+    # ======================================================
+
+    def _update_view_page(self):
+        start = self.view_page * self.view_page_size
+        end = start + self.view_page_size
+        self.view_rows = self.view_all_rows[start:end]
+
+    def _update_query_page(self):
+        start = self.query_page * self.query_page_size
+        end = start + self.query_page_size
+        self.query_rows = self.query_all_rows[start:end]
+
+    # ======================================================
+    # Vistas analíticas (vistas SQL)
+    # ======================================================
+
+    def set_selected_view(self, value: str):
+        """Se llama al hacer clic en un botón de vista."""
+        self.selected_view = value
+        self.view_page = 0
+        self.load_view_data()
+
+    def load_view_data(self):
+        """Carga datos de la vista seleccionada usando db.get_view_data."""
+        self.view_message = ""
+        rows = db.get_view_data(self.selected_view)
+        self.view_all_rows = rows
+        self.view_page = 0
+
+        if rows:
+            self.view_columns = list(rows[0].keys())
         else:
             self.view_columns = []
 
-    def change_view(self, value: str):
-        """Se dispara al cambiar el select de vistas."""
-        self.selected_view = value
-        self.load_view()
+        self._update_view_page()
 
-    # ================== CONSULTAS ==================
+        if not rows:
+            self.view_message = "Esta vista no tiene datos para mostrar en este momento."
 
-    def change_query(self, key: str):
-        """Cambia la consulta seleccionada y actualiza su label."""
-        self.selected_query_key = key
-        cfg = ANALYTICS_QUERIES.get(key)
-        if cfg is not None:
-            self.selected_query_label = cfg.get("label", key)
-        else:
-            self.selected_query_label = key
+    def next_view_page(self):
+        """Página siguiente de la vista."""
+        total = len(self.view_all_rows)
+        if (self.view_page + 1) * self.view_page_size < total:
+            self.view_page += 1
+            self._update_view_page()
 
-    def run_query(self):
-        """Ejecuta la consulta avanzada seleccionada (sin EXPLAIN)."""
+    def prev_view_page(self):
+        """Página anterior de la vista."""
+        if self.view_page > 0:
+            self.view_page -= 1
+            self._update_view_page()
+
+    # ======================================================
+    # Consultas avanzadas + EXPLAIN
+    # ======================================================
+
+    def set_selected_query(self, value: str):
+        """Se llama al cambiar de consulta avanzada."""
+        self.selected_query = value
+
+    def run_selected_query(self):
+        """Ejecuta la consulta avanzada seleccionada y su EXPLAIN."""
         self.query_message = ""
-        self.query_rows_json = ""
-        self.explain_rows = []
+        self.query_all_rows = []
+        self.query_rows = []
+        self.plan_rows = []
+        self.plan_columns = []
 
-        cfg = ANALYTICS_QUERIES.get(self.selected_query_key)
-        if cfg is None:
+        info = ADVANCED_QUERIES.get(self.selected_query)
+        if not info:
             self.query_message = "Consulta no encontrada."
             return
 
-        sql = cfg["sql"]
+        sql = info["sql"]
+
+        # Ejecutar consulta principal
         rows = db.run_sql_with_explain(sql, explain=False)
+        self.query_all_rows = rows
+        self.query_page = 0
+        if rows:
+            self.query_columns = list(rows[0].keys())
+        else:
+            self.query_columns = []
+        self._update_query_page()
 
         if not rows:
-            self.query_message = "La consulta se ejecutó, pero no devolvió filas."
+            self.query_message = "La consulta no devolvió resultados."
 
-        try:
-            self.query_rows_json = json.dumps(
-                rows, default=str, indent=2, ensure_ascii=False
-            )
-        except Exception:
-            self.query_rows_json = "[]"
+        # Ejecutar EXPLAIN
+        plan = db.run_sql_with_explain(sql, explain=True)
+        self.plan_rows = plan
+        if plan:
+            self.plan_columns = list(plan[0].keys())
+        else:
+            self.plan_columns = []
 
-    def run_explain(self):
-        """Ejecuta EXPLAIN para la consulta avanzada seleccionada."""
-        self.query_message = ""
-        self.explain_rows = []
+    def next_query_page(self):
+        """Página siguiente de resultados de consulta avanzada."""
+        total = len(self.query_all_rows)
+        if (self.query_page + 1) * self.query_page_size < total:
+            self.query_page += 1
+            self._update_query_page()
 
-        cfg = ANALYTICS_QUERIES.get(self.selected_query_key)
-        if cfg is None:
-            self.query_message = "Consulta no encontrada."
-            return
-
-        sql = cfg["sql"]
-        rows = db.run_sql_with_explain(sql, explain=True)
-        self.explain_rows = rows
-
-        if not rows:
-            self.query_message = "EXPLAIN no devolvió filas (revisa la consulta)."
+    def prev_query_page(self):
+        """Página anterior de resultados de consulta avanzada."""
+        if self.query_page > 0:
+            self.query_page -= 1
+            self._update_query_page()
 
 
 # ==========================================================
-# UI: VISTAS
+# UI Helpers genéricos para tablas
 # ==========================================================
 
-def views_section() -> rx.Component:
-    """Selector de vista + tabla dinámica."""
-    return rx.box(
-        rx.vstack(
-            rx.hstack(
-                rx.heading("Vistas analíticas", size="5", color="orange.9"),
-                rx.spacer(),
-                rx.select(
-                    items=ANALYTICS_VIEWS,
-                    value=AnalyticsState.selected_view,
-                    on_change=AnalyticsState.change_view,
-                    width="22rem",
+def _generic_table(columns_var, rows_var) -> rx.Component:
+    """
+    Tabla genérica que usa las columnas y filas pasadas.
+    columns_var: lista de nombres de columna (state var)
+    rows_var: lista de diccionarios (state var)
+    """
+    def render_header_cell(col: str):
+        return rx.table.column_header_cell(str(col))
+
+    def render_row(row: dict):
+        # Por cada columna, mostramos la celda correspondiente.
+        return rx.table.row(
+            rx.foreach(
+                columns_var,
+                lambda col: rx.table.cell(
+                    rx.cond(
+                        row[col] != None,
+                        row[col],
+                        "",
+                    )
                 ),
-                spacing="3",
-                align_items="center",
-                wrap="wrap",
+            )
+        )
+
+    return rx.table.root(
+        rx.table.header(
+            rx.table.row(
+                rx.foreach(columns_var, render_header_cell),
+            )
+        ),
+        rx.table.body(
+            rx.foreach(rows_var, render_row),
+        ),
+    )
+    
+def _selected_view_description() -> rx.Component:
+    """Descripción amigable de la vista analítica seleccionada."""
+    return rx.vstack(
+        # Título / label
+        rx.cond(
+            AnalyticsState.selected_view == "vw_ventas_por_categoria",
+            rx.text("Ventas por categoría", font_weight="medium", font_size="0.95rem"),
+            rx.cond(
+                AnalyticsState.selected_view == "vw_ticket_promedio_mensual",
+                rx.text("Ticket promedio mensual", font_weight="medium", font_size="0.95rem"),
+                rx.cond(
+                    AnalyticsState.selected_view == "vw_sla_envios",
+                    rx.text("SLA de envíos", font_weight="medium", font_size="0.95rem"),
+                    rx.cond(
+                        AnalyticsState.selected_view == "vw_tasa_devoluciones_mensual",
+                        rx.text("Tasa de devoluciones mensual", font_weight="medium", font_size="0.95rem"),
+                        rx.cond(
+                            AnalyticsState.selected_view == "vw_clientes_ltv_alto",
+                            rx.text("Clientes con LTV alto", font_weight="medium", font_size="0.95rem"),
+                            rx.cond(
+                                AnalyticsState.selected_view == "vw_inventario_producto_bodega",
+                                rx.text("Inventario por producto y bodega", font_weight="medium", font_size="0.95rem"),
+                                rx.cond(
+                                    AnalyticsState.selected_view == "vw_clientes_por_pais",
+                                    rx.text("Clientes por país", font_weight="medium", font_size="0.95rem"),
+                                    rx.text("ABC de productos", font_weight="medium", font_size="0.95rem"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
             ),
+        ),
+        # Descripción
+        rx.cond(
+            AnalyticsState.selected_view == "vw_ventas_por_categoria",
             rx.text(
-                "Selecciona una vista (nombre de la VIEW en MySQL) para analizar KPIs de LootBox.",
-                font_size="0.9rem",
+                "Suma de ventas (Q) agrupadas por categoría de producto.",
+                font_size="0.85rem",
                 color="gray.9",
             ),
             rx.cond(
-                AnalyticsState.view_rows != [],
-                view_table(),
+                AnalyticsState.selected_view == "vw_ticket_promedio_mensual",
+                rx.text(
+                    "Promedio del total de orden por mes.",
+                    font_size="0.85rem",
+                    color="gray.9",
+                ),
+                rx.cond(
+                    AnalyticsState.selected_view == "vw_sla_envios",
+                    rx.text(
+                        "Días entre fecha de envío y fecha de entrega por envío.",
+                        font_size="0.85rem",
+                        color="gray.9",
+                    ),
+                    rx.cond(
+                        AnalyticsState.selected_view == "vw_tasa_devoluciones_mensual",
+                        rx.text(
+                            "Relación entre órdenes y devoluciones por mes.",
+                            font_size="0.85rem",
+                            color="gray.9",
+                        ),
+                        rx.cond(
+                            AnalyticsState.selected_view == "vw_clientes_ltv_alto",
+                            rx.text(
+                                "Clientes cuyo Lifetime Value (LTV) supera el umbral definido.",
+                                font_size="0.85rem",
+                                color="gray.9",
+                            ),
+                            rx.cond(
+                                AnalyticsState.selected_view == "vw_inventario_producto_bodega",
+                                rx.text(
+                                    "Stock actual por producto y bodega calculado desde movimientos de inventario.",
+                                    font_size="0.85rem",
+                                    color="gray.9",
+                                ),
+                                rx.cond(
+                                    AnalyticsState.selected_view == "vw_clientes_por_pais",
+                                    rx.text(
+                                        "Número de clientes agrupados por país.",
+                                        font_size="0.85rem",
+                                        color="gray.9",
+                                    ),
+                                    rx.text(
+                                        "Clasificación ABC de productos según participación en ventas totales.",
+                                        font_size="0.85rem",
+                                        color="gray.9",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
             ),
-            spacing="2",
         ),
+        spacing="1",
+        align_items="flex-start",
+    )
+
+
+# ==========================================================
+# Sección de Vistas Analíticas
+# ==========================================================
+def _views_selector() -> rx.Component:
+    """Botones amigables para seleccionar la vista analítica."""
+
+    def render_button(option: dict):
+        return rx.button(
+            option["label"],
+            size="2",
+            variant="soft",
+            color_scheme=rx.cond(
+                AnalyticsState.selected_view == option["value"],
+                "orange",
+                "gray",
+            ),
+            on_click=lambda v=option["value"]: AnalyticsState.set_selected_view(v),
+        )
+
+    return rx.vstack(
+        rx.text("Vistas analíticas:", font_weight="medium"),
+        rx.hstack(
+            rx.foreach(VIEW_OPTIONS, render_button),
+            spacing="2",
+            wrap="wrap",
+        ),
+        _selected_view_description(),
+        spacing="2",
+        align_items="flex-start",
         width="100%",
     )
 
 
-def view_table() -> rx.Component:
-    """Tabla dinámica para mostrar cualquier vista."""
-    def render_header(col: str):
-        return rx.table.column_header_cell(col)
-
-    def render_row(row: dict):
-        def render_cell(col: str):
-            return rx.table.cell(row[col])
-        return rx.table.row(
-            rx.foreach(AnalyticsState.view_columns, render_cell)
-        )
-
+def _views_table_section() -> rx.Component:
+    """Contenedor de la tabla de la vista seleccionada con paginación."""
     return rx.box(
-        rx.table.root(
-            rx.table.header(
-                rx.table.row(
-                    rx.foreach(AnalyticsState.view_columns, render_header),
-                )
+        rx.vstack(
+            rx.cond(
+                AnalyticsState.view_message != "",
+                rx.text(
+                    AnalyticsState.view_message,
+                    color="orange.10",
+                    font_size="0.85rem",
+                ),
             ),
-            rx.table.body(
-                rx.foreach(AnalyticsState.view_rows, render_row),
+            rx.cond(
+                AnalyticsState.view_rows != [],
+                _generic_table(
+                    AnalyticsState.view_columns,
+                    AnalyticsState.view_rows,
+                ),
             ),
+            rx.hstack(
+                rx.button(
+                    "← Anterior",
+                    size="1",
+                    variant="outline",
+                    on_click=AnalyticsState.prev_view_page,
+                ),
+                rx.button(
+                    "Siguiente →",
+                    size="1",
+                    variant="outline",
+                    on_click=AnalyticsState.next_view_page,
+                ),
+                spacing="3",
+            ),
+            spacing="3",
         ),
         width="100%",
         overflow_x="auto",
         bg="white",
         padding="1rem",
         border_radius="1rem",
-        box_shadow="0 8px 16px rgba(15, 23, 42, 0.08)",
+        box_shadow="0 8px 16px rgba(15,23,42,0.08)",
+    )
+
+
+def analytics_views_section() -> rx.Component:
+    """Sección completa para las vistas analíticas."""
+    return rx.vstack(
+        rx.heading("Vistas analíticas", size="5", color="orange.9"),
+        rx.text(
+            "Explora las vistas agregadas en MySQL (ventas, SLA, devoluciones, LTV, inventario, etc.).",
+            font_size="0.9rem",
+            color="gray.9",
+        ),
+        _views_selector(),
+        _views_table_section(),
+        spacing="3",
+        width="100%",
     )
 
 
 # ==========================================================
-# UI: CONSULTAS AVANZADAS
+# Sección de Consultas Avanzadas + EXPLAIN
 # ==========================================================
 
-def queries_section() -> rx.Component:
-    """Sección para ejecutar consultas avanzadas + EXPLAIN."""
-    return rx.box(
-        rx.vstack(
-            rx.heading("Consultas avanzadas", size="5", color="orange.9"),
+def _selected_query_description() -> rx.Component:
+    """Descripción amigable de la consulta avanzada seleccionada."""
+    return rx.vstack(
+        rx.cond(
+            AnalyticsState.selected_query == "clientes_multipais",
             rx.text(
-                "Ejecuta consultas complejas predefinidas y revisa su plan de ejecución (EXPLAIN).",
-                font_size="0.9rem",
+                "Clientes multipaís",
+                font_weight="medium",
+                font_size="0.95rem",
+            ),
+            rx.cond(
+                AnalyticsState.selected_query == "clientes_churn_180",
+                rx.text(
+                    "Clientes churn (>180 días sin comprar)",
+                    font_weight="medium",
+                    font_size="0.95rem",
+                ),
+                rx.text(
+                    "ABC de productos (detalle)",
+                    font_weight="medium",
+                    font_size="0.95rem",
+                ),
+            ),
+        ),
+        rx.cond(
+            AnalyticsState.selected_query == "clientes_multipais",
+            rx.text(
+                "Clientes con compras registradas en más de un país.",
+                font_size="0.85rem",
                 color="gray.9",
             ),
-            rx.hstack(
-                rx.select(
-                    items=list(ANALYTICS_QUERIES.keys()),
-                    value=AnalyticsState.selected_query_key,
-                    on_change=AnalyticsState.change_query,
-                    width="24rem",
+            rx.cond(
+                AnalyticsState.selected_query == "clientes_churn_180",
+                rx.text(
+                    "Clientes cuya última compra fue hace más de 180 días.",
+                    font_size="0.85rem",
+                    color="gray.9",
                 ),
+                rx.text(
+                    "Consulta directa sobre la vista vw_abc_productos.",
+                    font_size="0.85rem",
+                    color="gray.9",
+                ),
+            ),
+        ),
+        spacing="1",
+        align_items="flex-start",
+    )
+
+def _queries_selector() -> rx.Component:
+    """Botones para elegir qué consulta avanzada ejecutar."""
+    options = [
+        {"value": key, "label": info["label"], "description": info["description"]}
+        for key, info in ADVANCED_QUERIES.items()
+    ]
+
+    def render_button(option: dict):
+        return rx.button(
+            option["label"],
+            size="2",
+            variant="soft",
+            color_scheme=rx.cond(
+                AnalyticsState.selected_query == option["value"],
+                "orange",
+                "gray",
+            ),
+            on_click=lambda v=option["value"]: AnalyticsState.set_selected_query(v),
+        )
+
+    return rx.vstack(
+        rx.text("Consultas avanzadas:", font_weight="medium"),
+        rx.hstack(
+            rx.foreach(options, render_button),
+            spacing="2",
+            wrap="wrap",
+        ),
+        _selected_query_description(),
+        spacing="2",
+        align_items="flex-start",
+        width="100%",
+    )
+
+
+def _queries_result_section() -> rx.Component:
+    """Tabla con resultados de la consulta avanzada + paginación."""
+    return rx.box(
+        rx.vstack(
+            rx.hstack(
                 rx.button(
                     "Ejecutar consulta",
                     color_scheme="orange",
-                    on_click=AnalyticsState.run_query,
-                ),
-                rx.button(
-                    "Ver EXPLAIN",
-                    variant="soft",
-                    on_click=AnalyticsState.run_explain,
+                    on_click=AnalyticsState.run_selected_query,
                 ),
                 spacing="3",
-                wrap="wrap",
-            ),
-            rx.text(
-                AnalyticsState.selected_query_label,
-                font_size="0.8rem",
-                color="gray.8",
             ),
             rx.cond(
                 AnalyticsState.query_message != "",
@@ -338,91 +587,85 @@ def queries_section() -> rx.Component:
                 ),
             ),
             rx.cond(
-                AnalyticsState.query_rows_json != "",
-                rx.box(
-                    rx.heading("Resultados de la consulta", size="4", color="orange.9"),
-                    rx.box(
-                        rx.code_block(
-                            AnalyticsState.query_rows_json,
-                            language="json",
-                            width="100%",
-                        ),
-                        max_height="300px",
-                        overflow_y="auto",
-                        margin_top="0.5rem",
-                    ),
-                    margin_top="0.5rem",
+                AnalyticsState.query_rows != [],
+                _generic_table(
+                    AnalyticsState.query_columns,
+                    AnalyticsState.query_rows,
                 ),
             ),
-            explain_table(),
+            rx.hstack(
+                rx.button(
+                    "← Anterior",
+                    size="1",
+                    variant="outline",
+                    on_click=AnalyticsState.prev_query_page,
+                ),
+                rx.button(
+                    "Siguiente →",
+                    size="1",
+                    variant="outline",
+                    on_click=AnalyticsState.next_query_page,
+                ),
+                spacing="3",
+            ),
             spacing="3",
         ),
         width="100%",
+        overflow_x="auto",
+        bg="white",
+        padding="1rem",
+        border_radius="1rem",
+        box_shadow="0 8px 16px rgba(15,23,42,0.08)",
+    )
+
+
+def _explain_section() -> rx.Component:
+    """Tabla con el plan de ejecución (EXPLAIN) de la consulta avanzada."""
+    return rx.box(
+        rx.vstack(
+            rx.heading("Plan de ejecución (EXPLAIN)", size="4", color="orange.9"),
+            rx.cond(
+                AnalyticsState.plan_rows != [],
+                _generic_table(
+                    AnalyticsState.plan_columns,
+                    AnalyticsState.plan_rows,
+                ),
+                rx.text(
+                    "Ejecuta una consulta avanzada para ver su plan de ejecución.",
+                    font_size="0.85rem",
+                    color="gray.9",
+                ),
+            ),
+            spacing="2",
+        ),
+        width="100%",
+        overflow_x="auto",
         bg="#fff8f0",
-        padding="1.5rem",
-        border_radius="1.25rem",
+        padding="1rem",
+        border_radius="1rem",
         border="1px solid #fed7aa",
     )
 
 
-def explain_table() -> rx.Component:
-    """Tabla para mostrar el resultado de EXPLAIN."""
-    headers = [
-        "id",
-        "select_type",
-        "table",
-        "type",
-        "possible_keys",
-        "key",
-        "key_len",
-        "ref",
-        "rows",
-        "filtered",
-        "Extra",
-    ]
-
-    def render_row(r: dict):
-        return rx.table.row(
-            rx.table.cell(str(r.get("id", ""))),
-            rx.table.cell(str(r.get("select_type", ""))),
-            rx.table.cell(str(r.get("table", ""))),
-            rx.table.cell(str(r.get("type", ""))),
-            rx.table.cell(str(r.get("possible_keys", ""))),
-            rx.table.cell(str(r.get("key", ""))),
-            rx.table.cell(str(r.get("key_len", ""))),
-            rx.table.cell(str(r.get("ref", ""))),
-            rx.table.cell(str(r.get("rows", ""))),
-            rx.table.cell(str(r.get("filtered", ""))),
-            rx.table.cell(str(r.get("Extra", ""))),
-        )
-
-    return rx.cond(
-        AnalyticsState.explain_rows != [],
-        rx.box(
-            rx.heading("Plan de ejecución (EXPLAIN)", size="4", color="orange.9"),
-            rx.table.root(
-                rx.table.header(
-                    rx.table.row(
-                        *[rx.table.column_header_cell(h) for h in headers],
-                    )
-                ),
-                rx.table.body(
-                    rx.foreach(AnalyticsState.explain_rows, render_row),
-                ),
-            ),
-            width="100%",
-            overflow_x="auto",
-            bg="white",
-            padding="1rem",
-            border_radius="1rem",
-            box_shadow="0 8px 16px rgba(15,23,42,0.08)",
-            margin_top="0.5rem",
+def analytics_queries_section() -> rx.Component:
+    """Sección completa de consultas avanzadas + EXPLAIN."""
+    return rx.vstack(
+        rx.heading("Consultas avanzadas & EXPLAIN", size="5", color="orange.9"),
+        rx.text(
+            "Ejecuta consultas avanzadas (churn, multipaís, ABC, etc.) y revisa su plan de ejecución.",
+            font_size="0.9rem",
+            color="gray.9",
         ),
+        _queries_selector(),
+        _queries_result_section(),
+        _explain_section(),
+        spacing="3",
+        width="100%",
     )
 
 
 # ==========================================================
-# PÁGINA PRINCIPAL
+# PÁGINA PRINCIPAL DE ANALÍTICA
 # ==========================================================
 
 def analytics_page() -> rx.Component:
@@ -430,13 +673,13 @@ def analytics_page() -> rx.Component:
     return rx.vstack(
         rx.heading("Analítica", size="6", color="orange.9"),
         rx.text(
-            "Explora vistas analíticas y ejecuta consultas avanzadas sobre LootBox.",
+            "Explora KPIs, vistas agregadas y consultas avanzadas sobre la base de datos LootBox.",
         ),
         rx.divider(margin_y="0.5rem"),
-        views_section(),
+        analytics_views_section(),
         rx.divider(margin_y="1.5rem"),
-        queries_section(),
+        analytics_queries_section(),
         spacing="4",
         width="100%",
-        on_mount=AnalyticsState.load_view,
+        on_mount=AnalyticsState.load_view_data,
     )

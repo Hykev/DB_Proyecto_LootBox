@@ -1,7 +1,6 @@
 import reflex as rx
 from .. import db
 
-
 class OrdersState(rx.State):
     """Estado para manejar el listado y detalle de órdenes."""
 
@@ -9,6 +8,9 @@ class OrdersState(rx.State):
     orders: list[dict] = []
     page: int = 0
     page_size: int = 10
+
+    # --- Mensajes ---
+    message: str = ""
 
     # --- Filtros ---
     filter_customer_id: str = ""
@@ -22,17 +24,26 @@ class OrdersState(rx.State):
     order_items: list[dict] = []
     order_devoluciones: list[dict] = []
 
-    # --- Formulario para crear orden simple (usa SP) ---
+    # --- Formulario para crear orden simple (SP) ---
     form_customer_id: str = ""
+    form_product_id: str = ""
+    form_quantity: str = ""
     form_empleado_id: str = ""
     form_warehouse_id: str = ""
+    
     form_total: str = ""
     form_metodo_pago: str = "EFECTIVO"  # EFECTIVO / TARJETA / TRANSFERENCIA
-    form_message: str = ""
+    # ==========================================================
+    # Filtros y listado
+    # ==========================================================
 
-    # ==========================================================
-    # Acciones principales
-    # ==========================================================
+    def set_filter_date_from(self, value: str):
+        """Setter explícito para evitar warning de auto-setters."""
+        self.filter_date_from = value
+
+    def set_filter_date_to(self, value: str):
+        """Setter explícito para evitar warning de auto-setters."""
+        self.filter_date_to = value
 
     def load_orders(self):
         """Carga las órdenes con filtros y paginación."""
@@ -99,45 +110,37 @@ class OrdersState(rx.State):
     # Crear orden simple (SP sp_crear_orden_simple)
     # ==========================================================
 
-    def create_simple_order(self):
-        """Crea una orden sencilla usando el SP sp_crear_orden_simple."""
-        # Validaciones básicas
-        if not self.form_customer_id or not self.form_empleado_id or not self.form_warehouse_id:
-            self.form_message = "Cliente, empleado y bodega son obligatorios."
-            return
-
-        if not self.form_total:
-            self.form_message = "El total es obligatorio."
-            return
-
+    def create_order_simple(self):
+        """Crea una orden usando el SP sp_crear_orden_simple."""
         try:
             customer_id = int(self.form_customer_id)
-            empleado_id = int(self.form_empleado_id)
+            product_id = int(self.form_product_id)
+            quantity = int(self.form_quantity)
+            employee_id = int(self.form_empleado_id)
             warehouse_id = int(self.form_warehouse_id)
-            total = float(self.form_total)
         except ValueError:
-            self.form_message = "IDs y total deben ser valores numéricos válidos."
+            self.message = "Todos los IDs y la cantidad deben ser numéricos."
             return
 
-        metodo = self.form_metodo_pago or "EFECTIVO"
-
-        # Llamar al SP
-        _ = db.create_order_simple(
+        ok, msg = db.create_order_simple(
             customer_id=customer_id,
-            empleado_id=empleado_id,
+            product_id=product_id,
+            quantity=quantity,
+            employee_id=employee_id,
             warehouse_id=warehouse_id,
-            total=total,
-            metodo_pago=metodo,
         )
 
-        self.form_message = "Orden creada (SP ejecutado)."
-        self.form_customer_id = ""
-        self.form_empleado_id = ""
-        self.form_warehouse_id = ""
-        self.form_total = ""
-        # Recargar listado
-        self.page = 0
-        self.load_orders()
+        if not ok and msg:
+            self.message = msg
+        else:
+            self.message = "Orden creada correctamente."
+            # limpia formulario, recarga listado
+            self.form_customer_id = ""
+            self.form_product_id = ""
+            self.form_quantity = ""
+            self.form_empleado_id = ""
+            self.form_warehouse_id = ""
+            self.load_orders()
 
 
 # ===============================
@@ -212,8 +215,8 @@ def orders_table() -> rx.Component:
 
     def render_row(o: dict):
         return rx.table.row(
-            rx.table.cell(str(o["ID"])),
-            rx.table.cell(str(o["FechaOrden"])),
+            rx.table.cell(o["ID"]),
+            rx.table.cell(o["FechaOrden"]),
             rx.table.cell(
                 f'{o["NombreCliente"]} {o["ApellidoCliente"]}'
             ),
@@ -276,7 +279,7 @@ def _order_detail_box() -> rx.Component:
     def render_item_row(it: dict):
         return rx.table.row(
             rx.table.cell(it["NombreProducto"]),
-            rx.table.cell(str(it["Cantidad"])),
+            rx.table.cell(it["Cantidad"]),
             rx.table.cell(f'Q {it["PrecioUnidad"]}'),
             rx.table.cell(f'Q {it["Subtotal"]}'),
             rx.table.cell(
@@ -377,54 +380,66 @@ def _order_detail_box() -> rx.Component:
         width="100%",
     )
 
-
 def create_order_form() -> rx.Component:
     """Formulario simple para crear una orden via stored procedure."""
     return rx.box(
         rx.vstack(
             rx.heading("Crear orden simple (SP)", size="5", color="orange.9"),
             rx.text(
-                "Esta acción llama al SP sp_crear_orden_simple para crear pago, envío y orden.",
+                "Crea una orden con un solo producto, ligada a un cliente, empleado y bodega.",
                 font_size="0.85rem",
                 color="gray.9",
             ),
-            rx.input(
-                placeholder="ID de cliente",
-                value=OrdersState.form_customer_id,
-                on_change=OrdersState.set_form_customer_id,
-            ),
-            rx.input(
-                placeholder="ID de empleado",
-                value=OrdersState.form_empleado_id,
-                on_change=OrdersState.set_form_empleado_id,
-            ),
-            rx.input(
-                placeholder="ID de bodega (warehouse)",
-                value=OrdersState.form_warehouse_id,
-                on_change=OrdersState.set_form_warehouse_id,
-            ),
-            rx.input(
-                placeholder="Total de la orden (Q)",
-                value=OrdersState.form_total,
-                on_change=OrdersState.set_form_total,
-            ),
-            rx.select(
-                items=["EFECTIVO", "TARJETA", "TRANSFERENCIA"],
-                value=OrdersState.form_metodo_pago,
-                on_change=OrdersState.set_form_metodo_pago,
-                label="Método de pago",
-            ),
             rx.hstack(
-                rx.button(
-                    "Crear orden",
-                    color_scheme="orange",
-                    on_click=OrdersState.create_simple_order,
+                rx.input(
+                    placeholder="ID de cliente",
+                    value=OrdersState.form_customer_id,
+                    on_change=OrdersState.set_form_customer_id,
+                    width="10rem",
+                ),
+                rx.input(
+                    placeholder="ID de producto",
+                    value=OrdersState.form_product_id,
+                    on_change=OrdersState.set_form_product_id,
+                    width="10rem",
+                ),
+                rx.input(
+                    placeholder="Cantidad",
+                    value=OrdersState.form_quantity,
+                    on_change=OrdersState.set_form_quantity,
+                    width="8rem",
                 ),
                 spacing="3",
+                wrap="wrap",
+            ),
+            rx.hstack(
+                rx.input(
+                    placeholder="ID de empleado",
+                    value=OrdersState.form_empleado_id,
+                    on_change=OrdersState.set_form_empleado_id,
+                    width="10rem",
+                ),
+                rx.input(
+                    placeholder="ID de bodega (warehouse)",
+                    value=OrdersState.form_warehouse_id,
+                    on_change=OrdersState.set_form_warehouse_id,
+                    width="12rem",
+                ),
+                spacing="3",
+                wrap="wrap",
+            ),
+            rx.button(
+                "Crear orden",
+                color_scheme="orange",
+                on_click=OrdersState.create_order_simple,  # ✅ nombre correcto del método
             ),
             rx.cond(
-                OrdersState.form_message != "",
-                rx.text(OrdersState.form_message, color="orange.10"),
+                OrdersState.message != "",
+                rx.text(
+                    OrdersState.message,
+                    color="orange.10",
+                    font_size="0.85rem",
+                ),
             ),
             spacing="3",
         ),
@@ -447,6 +462,14 @@ def orders_page() -> rx.Component:
         rx.text("Consulta, filtra y revisa el detalle de las órdenes de LootBox."),
         rx.divider(margin_y="0.5rem"),
         orders_filters_bar(),
+        rx.cond(
+            OrdersState.message != "",
+            rx.text(
+                OrdersState.message,
+                color="orange.10",
+                font_size="0.85rem",
+            ),
+        ),
         orders_table(),
         orders_pagination(),
         rx.divider(margin_y="1rem"),

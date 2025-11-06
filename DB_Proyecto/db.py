@@ -1,4 +1,5 @@
-# DB_Proyecto/db.py
+from mysql.connector import Error, IntegrityError
+
 """
 Capa de acceso a datos para el proyecto LootBox.
 
@@ -250,13 +251,22 @@ def update_customer(
     return rowcount == 1
 
 
-def delete_customer(customer_id: int) -> bool:
-    """Elimina un cliente (si no viola FKs)."""
-    rowcount = run_execute(
-        "DELETE FROM Customers WHERE ID = %s",
-        (customer_id,),
-    )
-    return rowcount == 1
+def delete_customer(customer_id: int) -> tuple[bool, str | None]:
+    """Intenta eliminar un cliente. Devuelve (ok, mensaje_error)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Customers WHERE ID = %s", (customer_id,))
+        conn.commit()
+        return True, None
+    except IntegrityError:
+        # No se puede borrar porque tiene relaciones (devoluciones, órdenes, etc.)
+        return False, "No se puede eliminar el cliente porque tiene registros relacionados (por ejemplo, devoluciones u órdenes)."
+    except Error as e:
+        return False, f"Error al eliminar cliente: {e}"
+    finally:
+        cursor.close()
+        conn.close()
 
 
 # -----------------------------------------------------------------------------
@@ -264,25 +274,24 @@ def delete_customer(customer_id: int) -> bool:
 # -----------------------------------------------------------------------------
 
 def get_products(
-    nombre: str | None = None,
     category_id: int | None = None,
+    category_name: str | None = None,
     supplier_id: int | None = None,
+    name: str | None = None,
     page: int = 0,
     page_size: int = 20,
 ) -> list[dict]:
-    """
-    Devuelve listado de productos con categoría y proveedor.
-    """
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
     query = """
         SELECT
             p.ID,
             p.`Nombre del producto` AS NombreProducto,
             p.Precio,
             p.`Fecha de creación` AS FechaCreacion,
-            c.ID AS CategoriaID,
             c.Nombre AS CategoriaNombre,
-            s.ID AS SupplierID,
-            s.`Nombre de proveedor` AS SupplierNombre
+            s.`Nombre de proveedor` AS NombreProveedor
         FROM Products p
         JOIN Categories c ON c.ID = p.Categories_ID
         JOIN Suppliers s ON s.ID = p.Suppliers_ID
@@ -290,22 +299,32 @@ def get_products(
     """
     params: list = []
 
-    if nombre:
-        query += " AND p.`Nombre del producto` LIKE %s "
-        params.append(f"%{nombre}%")
-
-    if category_id:
-        query += " AND c.ID = %s "
+    if category_id is not None:
+        query += " AND p.Categories_ID = %s"
         params.append(category_id)
 
-    if supplier_id:
-        query += " AND s.ID = %s "
+    if category_name:
+        query += " AND c.Nombre LIKE %s"
+        params.append(f"%{category_name}%")
+
+    if supplier_id is not None:
+        query += " AND p.Suppliers_ID = %s"
         params.append(supplier_id)
 
-    query += " ORDER BY p.ID ASC LIMIT %s OFFSET %s "
-    params.extend([page_size, page * page_size])
+    if name:
+        query += " AND p.`Nombre del producto` LIKE %s"
+        params.append(f"%{name}%")
 
-    return run_select(query, tuple(params))
+    query += " ORDER BY p.ID LIMIT %s OFFSET %s"
+    offset = page * page_size
+    params.extend([page_size, offset])
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return rows
+
 
 
 def get_product_by_id(product_id: int) -> dict | None:
@@ -368,13 +387,21 @@ def update_product(
     return rowcount == 1
 
 
-def delete_product(product_id: int) -> bool:
-    """Elimina un producto (si no viola FKs)."""
-    rowcount = run_execute(
-        "DELETE FROM Products WHERE ID = %s",
-        (product_id,),
-    )
-    return rowcount == 1
+def delete_product(product_id: int) -> tuple[bool, str | None]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Products WHERE ID = %s", (product_id,))
+        conn.commit()
+        return True, None
+    except IntegrityError:
+        return False, "No se puede eliminar el producto porque aparece en órdenes o movimientos de inventario."
+    except Error as e:
+        return False, f"Error al eliminar producto: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
 
 
 # -----------------------------------------------------------------------------
@@ -500,38 +527,51 @@ def get_order_detail(order_id: int) -> dict:
         "devoluciones": devoluciones,
     }
 
-
 def create_order_simple(
     customer_id: int,
-    empleado_id: int,
+    product_id: int,
+    quantity: int,
+    employee_id: int,
     warehouse_id: int,
-    total: float,
-    metodo_pago: str,
-) -> list[dict]:
+) -> tuple[bool, str | None]:
     """
-    Crea una orden sencilla usando el SP sp_crear_orden_simple.
-
-    Nota: el SP original no devuelve la orden creada; si quieres, luego
-    podemos ajustarlo para que haga SELECT del último registro.
-    Aquí devolvemos el resultset (si el SP lo llegara a tener).
+    Llama al SP sp_crear_orden_simple.
+    Devuelve (ok, mensaje_error).
     """
-    return run_callproc(
-        "sp_crear_orden_simple",
-        [customer_id, empleado_id, warehouse_id, total, metodo_pago],
-    )
-
-
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.callproc(
+            "sp_crear_orden_simple",
+            [customer_id, product_id, quantity, employee_id, warehouse_id],
+        )
+        conn.commit()
+        return True, None
+    except IntegrityError:
+        return (
+            False,
+            "No se pudo crear la orden: verifica que el cliente, producto, empleado y bodega existan.",
+        )
+    except Error as e:
+        return False, f"Error al crear la orden: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+        
 # -----------------------------------------------------------------------------
 # Inventario: vistas y SPs
 # -----------------------------------------------------------------------------
-
 def get_inventory_view(
     product_id: int | None = None,
     warehouse_id: int | None = None,
+    page: int = 0,
+    page_size: int = 20,
 ) -> list[dict]:
     """
     Devuelve los datos de la vista vw_inventario_producto_bodega,
-    con filtros opcionales por producto y bodega.
+    con filtros opcionales por producto y bodega y paginación.
+
+    Aquí normalizamos stock_actual para que nunca sea negativo en la UI.
     """
     query = """
         SELECT
@@ -539,7 +579,7 @@ def get_inventory_view(
             `Nombre del producto` AS NombreProducto,
             warehouse_id,
             warehouse_nombre,
-            stock_actual
+            GREATEST(stock_actual, 0) AS stock_actual
         FROM vw_inventario_producto_bodega
         WHERE 1 = 1
     """
@@ -553,7 +593,9 @@ def get_inventory_view(
         query += " AND warehouse_id = %s "
         params.append(warehouse_id)
 
-    query += " ORDER BY NombreProducto, warehouse_nombre "
+    query += " ORDER BY NombreProducto, warehouse_nombre LIMIT %s OFFSET %s "
+    params.extend([page_size, page * page_size])
+
     return run_select(query, tuple(params))
 
 
@@ -584,6 +626,97 @@ def register_inventory_movement(
     # Si no lanza error, asumimos éxito
     return True
 
+def get_inventory_summary(page: int = 0, page_size: int = 20) -> list[dict]:
+    """
+    Devuelve stock actual por producto y bodega.
+
+    Se apoya en la vista vw_inventario_producto_bodega.
+    Las columnas reales de la vista son:
+      - product_id
+      - `Nombre del producto`
+      - warehouse_id
+      - warehouse_nombre
+      - stock_actual
+    Aquí las aliasamos para que el frontend pueda usar nombres amigables.
+    """
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    query = """
+        SELECT
+            product_id,
+            `Nombre del producto` AS NombreProducto,
+            warehouse_id,
+            warehouse_nombre AS NombreBodega,
+            stock_actual
+        FROM vw_inventario_producto_bodega
+        ORDER BY product_id, warehouse_id
+        LIMIT %s OFFSET %s
+    """
+    offset = page * page_size
+    cursor.execute(query, (page_size, offset))
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return rows
+
+
+def get_stock_for_product_warehouse(product_id: int, warehouse_id: int) -> int:
+    """
+    Usa el SP sp_calcular_stock_producto_bodega para obtener stock actual.
+    Nunca devuelve valores negativos (se truncan a 0).
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.callproc("sp_calcular_stock_producto_bodega", [product_id, warehouse_id])
+        for result in cursor.stored_results():
+            row = result.fetchone()
+            if row is not None:
+                try:
+                    stock = int(row[0])
+                except (TypeError, ValueError):
+                    stock = 0
+                return max(stock, 0)
+        return 0
+    except Error:
+        # Si falla el SP, devolvemos 0 para no romper la UI
+        return 0
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+def registrar_movimiento_inventario(
+    product_id: int,
+    warehouse_id: int,
+    cantidad: int,
+    tipo: str,
+) -> tuple[bool, str | None]:
+    """
+    Llama al SP sp_registrar_movimiento_inventario.
+    Devuelve (ok, mensaje_error).
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.callproc(
+            "sp_registrar_movimiento_inventario",
+            [product_id, warehouse_id, cantidad, tipo],
+        )
+        conn.commit()
+        return True, None
+    except IntegrityError:
+        return (
+            False,
+            "No se pudo registrar el movimiento: verifica que el producto y la bodega existan.",
+        )
+    except Error as e:
+        return False, f"Error al registrar movimiento de inventario: {e}"
+    finally:
+        cursor.close()
+        conn.close()
 
 # -----------------------------------------------------------------------------
 # Promociones & Loyalty
@@ -638,20 +771,40 @@ def get_loyalty_movements_by_customer(customer_id: int) -> list[dict]:
     return run_select(query, (customer_id,))
 
 
+from mysql.connector import Error, IntegrityError  # asegúrate de tener ambos importados arriba
+
+
 def register_loyalty_movement(
     customer_id: int,
     order_id: int | None,
     puntos: int,
     descripcion: str,
-) -> bool:
+) -> tuple[bool, str | None]:
     """
     Registra un movimiento de lealtad usando sp_registrar_movimiento_lealtad.
+    Devuelve (ok, mensaje_error).
     """
-    run_callproc(
-        "sp_registrar_movimiento_lealtad",
-        [customer_id, order_id, puntos, descripcion],
-    )
-    return True
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.callproc(
+            "sp_registrar_movimiento_lealtad",
+            [customer_id, order_id, puntos, descripcion],
+        )
+        conn.commit()
+        return True, None
+    except IntegrityError:
+        # Error típico de llave foránea: cliente u orden no existen
+        return (
+            False,
+            "No se pudo registrar el movimiento: verifica que el cliente y (si aplica) la orden existan.",
+        )
+    except Error as e:
+        return False, f"Error al ejecutar sp_registrar_movimiento_lealtad: {e}"
+    finally:
+        cursor.close()
+        conn.close()
+
 
 
 # -----------------------------------------------------------------------------

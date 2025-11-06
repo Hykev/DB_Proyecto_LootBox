@@ -8,7 +8,7 @@ class PromosLoyaltyState(rx.State):
     # --- Promociones ---
     promotions: list[dict] = []
 
-    # --- Movimientos de lealtad ---
+    # --- Movimientos de lealtad (consulta) ---
     loyalty_customer_id: str = ""
     loyalty_rows: list[dict] = []
     has_loyalty_rows: bool = False
@@ -22,17 +22,36 @@ class PromosLoyaltyState(rx.State):
     form_descripcion: str = ""
     form_message: str = ""
 
-    # ==========================================================
+    # =======================
+    # Setters explícitos
+    # =======================
+
+    def set_loyalty_customer_id(self, value: str):
+        self.loyalty_customer_id = value
+
+    def set_form_customer_id(self, value: str):
+        self.form_customer_id = value
+
+    def set_form_order_id(self, value: str):
+        self.form_order_id = value
+
+    def set_form_puntos(self, value: str):
+        self.form_puntos = value
+
+    def set_form_descripcion(self, value: str):
+        self.form_descripcion = value
+
+    # =======================
     # Promociones
-    # ==========================================================
+    # =======================
 
     def load_promotions(self):
         """Carga las promociones (por ahora, solo las activas)."""
         self.promotions = db.get_promotions(only_active=True)
 
-    # ==========================================================
+    # =======================
     # Movimientos de lealtad
-    # ==========================================================
+    # =======================
 
     def load_loyalty_movements(self):
         """Carga los movimientos de lealtad de un cliente."""
@@ -59,9 +78,9 @@ class PromosLoyaltyState(rx.State):
         if not rows:
             self.loyalty_message = "Este cliente no tiene movimientos de lealtad."
 
-    # ==========================================================
+    # =======================
     # Registrar movimiento manual de lealtad
-    # ==========================================================
+    # =======================
 
     def register_loyalty_movement(self):
         """Registra un movimiento de lealtad (puntos + / -)."""
@@ -97,22 +116,25 @@ class PromosLoyaltyState(rx.State):
 
         descripcion = self.form_descripcion.strip() or "Ajuste manual de puntos"
 
-        db.register_loyalty_movement(
+        # db.register_loyalty_movement actualmente devuelve True siempre,
+        # pero dejamos la estructura lista por si luego quieres manejar errores.
+        ok = db.register_loyalty_movement(
             customer_id=customer_id,
             order_id=order_id,
             puntos=puntos,
             descripcion=descripcion,
         )
 
-        self.form_message = "Movimiento de lealtad registrado correctamente."
-
-        # Si el cliente del formulario es el mismo de la pestaña de consulta, recargamos
-        if self.loyalty_customer_id.strip() == self.form_customer_id.strip():
-            self.load_loyalty_movements()
-
-        # Limpiar campos de puntos y descripción
-        self.form_puntos = ""
-        self.form_descripcion = ""
+        if ok:
+            self.form_message = "Movimiento de lealtad registrado correctamente."
+            # Si el cliente del formulario es el mismo de la pestaña de consulta, recargamos
+            if self.loyalty_customer_id.strip() == self.form_customer_id.strip():
+                self.load_loyalty_movements()
+            # Limpiar campos de puntos y descripción
+            self.form_puntos = ""
+            self.form_descripcion = ""
+        else:
+            self.form_message = "No se pudo registrar el movimiento de lealtad."
 
 
 # ===============================
@@ -132,24 +154,25 @@ def promotions_table() -> rx.Component:
         "Activa",
     ]
 
-    def render_row(promo: dict):
+    def render_row(promo):
+        # promo es un Var(dict), evitamos .get y usamos rx.cond
         return rx.table.row(
-            rx.table.cell(str(promo["ID"])),
+            rx.table.cell(promo["ID"]),
             rx.table.cell(promo["Nombre"]),
             rx.table.cell(
                 rx.cond(
-                    promo.get("Descripcion") != None,
-                    promo.get("Descripcion"),
+                    promo["Descripcion"] != None,
+                    promo["Descripcion"],
                     "",
                 )
             ),
-            rx.table.cell(str(promo.get("Descuento_porcentaje", ""))),
-            rx.table.cell(str(promo.get("Fecha_inicio", ""))),
-            rx.table.cell(str(promo.get("Fecha_fin", ""))),
+            rx.table.cell(promo["Descuento_porcentaje"]),
+            rx.table.cell(promo["Fecha_inicio"]),
+            rx.table.cell(promo["Fecha_fin"]),
             rx.table.cell(
                 rx.cond(
-                    promo.get("CategoriaNombre") != None,
-                    promo.get("CategoriaNombre"),
+                    promo["CategoriaNombre"] != None,
+                    promo["CategoriaNombre"],
                     "-",
                 )
             ),
@@ -161,7 +184,6 @@ def promotions_table() -> rx.Component:
                 )
             ),
         )
-
 
     return rx.box(
         rx.heading("Promociones activas", size="5", color="orange.9"),
@@ -190,36 +212,36 @@ def promotions_table() -> rx.Component:
             margin_top="0.75rem",
         ),
         width="100%",
-        spacing="2",
     )
 
 
 def loyalty_query_panel() -> rx.Component:
     """Panel para consultar movimientos de lealtad de un cliente."""
+
     def loyalty_table() -> rx.Component:
-        def render_row(m: dict):
+        def render_row(m):
             return rx.table.row(
-                rx.table.cell(str(m["Fecha"])),
-                rx.table.cell(str(m["Puntos_cambio"])),
+                rx.table.cell(m["Fecha"]),
+                rx.table.cell(m["Puntos_cambio"]),
                 rx.table.cell(m["Descripcion"]),
                 rx.table.cell(
                     rx.cond(
-                        m.get("Ordenes_ID") != None,
-                        str(m.get("Ordenes_ID")),
+                        m["Ordenes_ID"] != None,
+                        m["Ordenes_ID"],
                         "-",
                     )
                 ),
                 rx.table.cell(
                     rx.cond(
-                        m.get("FechaOrden") != None,
-                        str(m.get("FechaOrden")),
+                        m["FechaOrden"] != None,
+                        m["FechaOrden"],
                         "-",
                     )
                 ),
                 rx.table.cell(
                     rx.cond(
-                        m.get("TotalOrden") != None,
-                        f'Q {m.get("TotalOrden")}',
+                        m["TotalOrden"] != None,
+                        f'Q {m["TotalOrden"]}',
                         "-",
                     )
                 ),
@@ -385,7 +407,7 @@ def promos_loyalty_page() -> rx.Component:
         rx.hstack(
             loyalty_query_panel(),
             loyalty_form_panel(),
-            spacing="4",              
+            spacing="4",
             wrap="wrap",
             align_items="flex-start",
         ),
@@ -393,4 +415,3 @@ def promos_loyalty_page() -> rx.Component:
         width="100%",
         on_mount=PromosLoyaltyState.load_promotions,
     )
-

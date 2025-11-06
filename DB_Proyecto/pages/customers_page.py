@@ -18,7 +18,7 @@ class CustomersState(rx.State):
     # --- Filtros ---
     search_name: str = ""
     search_email: str = ""
-
+    message: str = ""
     # --- Formulario (crear / editar) ---
     selected_id: int | None = None
     nombre: str = ""
@@ -126,12 +126,12 @@ class CustomersState(rx.State):
         self.load_customers()
 
     def delete_customer(self, customer_id: int):
-        """Elimina un cliente."""
-        ok = db.delete_customer(customer_id)
-        self.form_message = (
-            "Cliente eliminado correctamente." if ok else "Error al eliminar cliente."
-        )
-        self.load_customers()
+        ok, msg = db.delete_customer(customer_id)
+        if not ok and msg:
+            self.message = msg
+        else:
+            self.message = "Cliente eliminado correctamente."
+            self.load_customers()
 
 
 # ===============================
@@ -154,7 +154,7 @@ def customers_table() -> rx.Component:
     def render_row(c: dict):
         """Renderiza una fila de la tabla de clientes (Reflex 0.8+ compatible)."""
         return rx.table.row(
-            rx.table.cell(str(c["ID"])),
+            rx.table.cell(c["ID"]),
             rx.table.cell(c["Nombre"]),
             rx.table.cell(c["Apellido"]),
             rx.table.cell(
@@ -333,6 +333,14 @@ def customers_page() -> rx.Component:
         rx.text("Consulta, crea o edita los clientes registrados en LootBox."),
         rx.divider(margin_y="0.5rem"),
         filters_bar(),
+        rx.cond(
+            CustomersState.message != "",
+            rx.text(
+                CustomersState.message,
+                color="orange.10",
+                font_size="0.85rem",
+            ),
+        ),
         customers_table(),
         pagination_controls(),
         rx.divider(margin_y="1rem"),

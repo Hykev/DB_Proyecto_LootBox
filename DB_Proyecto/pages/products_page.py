@@ -21,7 +21,7 @@ class ProductsState(rx.State):
     precio: str = ""               # lo guardamos como string y lo convertimos a float al guardar
     category_id_str: str = ""
     supplier_id_str: str = ""
-
+    message: str = ""
     # --- Mensajes ---
     form_message: str = ""
 
@@ -30,17 +30,35 @@ class ProductsState(rx.State):
     # ==========================================================
 
     def load_products(self):
-        """Carga los productos con filtros y paginación."""
-        category_id = int(self.search_category_id) if self.search_category_id.strip() != "" else None
-        supplier_id = int(self.search_supplier_id) if self.search_supplier_id.strip() != "" else None
+        category_id = None
+        category_name = None
+
+        texto = self.search_category_id.strip()
+        if texto != "":
+            if texto.isdigit():
+                category_id = int(texto)
+            else:
+                category_name = texto   # buscar por nombre
+
+        supplier_id = None
+        if self.search_supplier_id.strip() != "":
+            try:
+                supplier_id = int(self.search_supplier_id)
+            except ValueError:
+                supplier_id = None
+
+        name = self.search_name.strip() or None
 
         self.products = db.get_products(
-            nombre=self.search_name or None,
             category_id=category_id,
+            category_name=category_name,
             supplier_id=supplier_id,
+            name=name,
             page=self.page,
             page_size=self.page_size,
         )
+
+
 
     def next_page(self):
         """Paginación siguiente."""
@@ -135,12 +153,13 @@ class ProductsState(rx.State):
         self.load_products()
 
     def delete_product(self, product_id: int):
-        """Elimina un producto."""
-        ok = db.delete_product(product_id)
-        self.form_message = (
-            "Producto eliminado correctamente." if ok else "Error al eliminar producto."
-        )
-        self.load_products()
+        ok, msg = db.delete_product(product_id)
+        if not ok and msg:
+            self.message = msg
+        else:
+            self.message = "Producto eliminado correctamente."
+            self.load_products()
+
 
 
 # ===============================
@@ -162,7 +181,7 @@ def products_table() -> rx.Component:
     def render_row(p: dict):
         """Renderiza una fila de la tabla de productos (compatible Reflex 0.8+)."""
         return rx.table.row(
-            rx.table.cell(str(p["ID"])),
+            rx.table.cell(p["ID"]),
             rx.table.cell(p["NombreProducto"]),
             rx.table.cell(
                 rx.cond(
@@ -173,13 +192,13 @@ def products_table() -> rx.Component:
             ),
             rx.table.cell(
                 rx.cond(
-                    p.get("SupplierNombre") != None,
-                    p.get("SupplierNombre"),
+                    p.get("NombreProveedor") != None,
+                    p.get("NombreProveedor"),
                     "",
                 )
             ),
             rx.table.cell(f"Q {p['Precio']}"),
-            rx.table.cell(str(p["FechaCreacion"])),
+            rx.table.cell(p["FechaCreacion"]),
             rx.table.cell(
                 rx.hstack(
                     rx.button(
@@ -335,6 +354,14 @@ def products_page() -> rx.Component:
         rx.text("Administra el catálogo de figuras, funkos, cartas y otros coleccionables."),
         rx.divider(margin_y="0.5rem"),
         filters_bar(),
+        rx.cond(
+            ProductsState.message != "",
+            rx.text(
+                ProductsState.message,
+                color="orange.10",
+                font_size="0.85rem",
+            ),
+        ),
         products_table(),
         pagination_controls(),
         rx.divider(margin_y="1rem"),
