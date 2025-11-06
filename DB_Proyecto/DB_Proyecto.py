@@ -5,6 +5,8 @@ from .pages.products_page import products_page
 from .pages.orders_page import orders_page
 from .pages.inventory_page import inventory_page
 from .pages.promos_loyalty_page import promos_loyalty_page
+from .pages.analytics_page import analytics_page
+from .pages.admin_audit_page import admin_audit_page
 
 
 # Si luego quieres usar la BD desde aquí:
@@ -206,17 +208,11 @@ def dashboard_content() -> rx.Component:
                         inventory_page(),
                         rx.cond(
                             State.current_section == "promos",
-                            promos_loyalty_page(),  # <--- aquí usamos la vista real
+                            promos_loyalty_page(),
                             rx.cond(
                                 State.current_section == "analytics",
-                                placeholder_section(
-                                    "Analítica",
-                                    "Vistas avanzadas, KPIs y EXPLAIN de consultas.",
-                                ),
-                                placeholder_section(
-                                    "Administración & Auditoría",
-                                    "Registros de auditoría y configuración del sistema.",
-                                ),
+                                analytics_page(),
+                                admin_audit_page(),   # 👈 vista real de Admin & Auditoría
                             ),
                         ),
                     ),

@@ -699,54 +699,65 @@ def run_sql_with_explain(sql: str, params: tuple | None = None, explain: bool = 
 # Audit log
 # -----------------------------------------------------------------------------
 
-def get_audit_log(
+def get_audit_logs(
     tabla: str | None = None,
     operacion: str | None = None,
-    user_id: int | None = None,
-    fecha_desde: str | None = None,
+    usuario: str | None = None,
+    fecha_desde: str | None = None,  # formato esperado: 'YYYY-MM-DD' o 'YYYY-MM-DD HH:MM:SS'
     fecha_hasta: str | None = None,
     page: int = 0,
-    page_size: int = 50,
+    page_size: int = 20,
 ) -> list[dict]:
     """
-    Devuelve el audit log con filtros opcionales y paginación.
+    Obtiene registros del Audit_log con filtros opcionales y paginación.
+
+    Se asume una tabla audit_log con columnas:
+    ID, Tabla, Operacion, Registro_ID, Usuario, Fecha, Datos_anteriores, Datos_nuevos.
     """
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
     query = """
         SELECT
-            a.ID,
-            a.Fecha_evento,
-            a.Tabla_afectada,
-            a.Operación,
-            a.Registro_ID,
-            u.ID AS UserID,
-            u.`Nombre de usuario` AS UserNombre
-        FROM Audit_log a
-        LEFT JOIN Users u ON u.ID = a.Users_ID
+            ID,
+            Tabla,
+            Operacion,
+            Registro_ID,
+            Usuario,
+            Fecha,
+            Datos_anteriores,
+            Datos_nuevos
+        FROM Audit_log
         WHERE 1 = 1
     """
     params: list = []
 
     if tabla:
-        query += " AND a.Tabla_afectada = %s "
+        query += " AND Tabla = %s"
         params.append(tabla)
 
     if operacion:
-        query += " AND a.Operación = %s "
+        query += " AND Operacion = %s"
         params.append(operacion)
 
-    if user_id:
-        query += " AND a.Users_ID = %s "
-        params.append(user_id)
+    if usuario:
+        query += " AND Usuario LIKE %s"
+        params.append(f"%{usuario}%")
 
     if fecha_desde:
-        query += " AND DATE(a.Fecha_evento) >= %s "
+        query += " AND Fecha >= %s"
         params.append(fecha_desde)
 
     if fecha_hasta:
-        query += " AND DATE(a.Fecha_evento) <= %s "
+        query += " AND Fecha <= %s"
         params.append(fecha_hasta)
 
-    query += " ORDER BY a.Fecha_evento DESC LIMIT %s OFFSET %s "
-    params.extend([page_size, page * page_size])
+    query += " ORDER BY Fecha DESC LIMIT %s OFFSET %s"
+    offset = page * page_size
+    params.extend([page_size, offset])
 
-    return run_select(query, tuple(params))
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return rows
