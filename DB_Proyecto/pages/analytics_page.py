@@ -406,10 +406,9 @@ def _views_selector() -> rx.Component:
                 "orange",
                 "gray",
             ),
-            # 👈 sin parámetros; usamos directamente el valor de la opción
-            on_click=lambda: AnalyticsState.set_selected_view(option["value"]),
+            # 👈 usamos directamente el event handler de Reflex con el valor
+            on_click=AnalyticsState.set_selected_view(option["value"]),
         )
-
 
     return rx.vstack(
         rx.text("Vistas analíticas:", font_weight="medium"),
@@ -423,7 +422,6 @@ def _views_selector() -> rx.Component:
         align_items="flex-start",
         width="100%",
     )
-
 
 def _views_table_section() -> rx.Component:
     """Contenedor de la tabla de la vista seleccionada con paginación."""
@@ -539,7 +537,6 @@ def _selected_query_description() -> rx.Component:
         spacing="1",
         align_items="flex-start",
     )
-
 def _queries_selector() -> rx.Component:
     """Botones para elegir qué consulta avanzada ejecutar."""
     options = [
@@ -557,9 +554,9 @@ def _queries_selector() -> rx.Component:
                 "orange",
                 "gray",
             ),
-            on_click=lambda: AnalyticsState.set_selected_query(option["value"]),
+            # 👈 igual que arriba: sin lambda, pasando el valor correcto
+            on_click=AnalyticsState.set_selected_query(option["value"]),
         )
-
 
     return rx.vstack(
         rx.text("Consultas avanzadas:", font_weight="medium"),
