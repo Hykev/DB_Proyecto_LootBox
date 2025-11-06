@@ -133,7 +133,7 @@ class AnalyticsState(rx.State):
     # --- Plan de ejecución (EXPLAIN) ---
     plan_rows: list[dict] = []
     plan_columns: list[str] = []
-
+    show_plan: bool = True
     # ======================================================
     # Helpers internos de paginación
     # ======================================================
@@ -191,6 +191,11 @@ class AnalyticsState(rx.State):
     # ======================================================
     # Consultas avanzadas + EXPLAIN
     # ======================================================
+
+    def toggle_plan(self):
+        """Muestra u oculta la tabla de EXPLAIN."""
+        self.show_plan = not self.show_plan
+
 
     def set_selected_query(self, value: str):
         """Se llama al cambiar de consulta avanzada."""
@@ -401,7 +406,7 @@ def _views_selector() -> rx.Component:
                 "orange",
                 "gray",
             ),
-            on_click=lambda v=option["value"]: AnalyticsState.set_selected_view(v),
+            on_click=AnalyticsState.set_selected_view(option["value"]),
         )
 
     return rx.vstack(
@@ -549,7 +554,7 @@ def _queries_selector() -> rx.Component:
                 "orange",
                 "gray",
             ),
-            on_click=lambda v=option["value"]: AnalyticsState.set_selected_query(v),
+            on_click=AnalyticsState.set_selected_query(option["value"]),
         )
 
     return rx.vstack(
@@ -618,22 +623,44 @@ def _queries_result_section() -> rx.Component:
         box_shadow="0 8px 16px rgba(15,23,42,0.08)",
     )
 
-
 def _explain_section() -> rx.Component:
     """Tabla con el plan de ejecución (EXPLAIN) de la consulta avanzada."""
     return rx.box(
         rx.vstack(
-            rx.heading("Plan de ejecución (EXPLAIN)", size="4", color="orange.9"),
+            rx.hstack(
+                rx.heading("Plan de ejecución (EXPLAIN)", size="4", color="orange.9"),
+                rx.spacer(),
+                rx.button(
+                    rx.cond(
+                        AnalyticsState.show_plan,
+                        "Cerrar plan",
+                        "Mostrar plan",
+                    ),
+                    size="1",
+                    variant="outline",
+                    on_click=AnalyticsState.toggle_plan,
+                ),
+                align_items="center",
+            ),
             rx.cond(
-                AnalyticsState.plan_rows != [],
+                AnalyticsState.show_plan
+                & (AnalyticsState.plan_rows != []),
                 _generic_table(
                     AnalyticsState.plan_columns,
                     AnalyticsState.plan_rows,
                 ),
-                rx.text(
-                    "Ejecuta una consulta avanzada para ver su plan de ejecución.",
-                    font_size="0.85rem",
-                    color="gray.9",
+                rx.cond(
+                    AnalyticsState.show_plan,
+                    rx.text(
+                        "Ejecuta una consulta avanzada para ver su plan de ejecución.",
+                        font_size="0.85rem",
+                        color="gray.9",
+                    ),
+                    rx.text(
+                        "El plan de ejecución está oculto. Pulsa “Mostrar plan” para verlo.",
+                        font_size="0.85rem",
+                        color="gray.9",
+                    ),
                 ),
             ),
             spacing="2",

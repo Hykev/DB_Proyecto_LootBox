@@ -134,37 +134,25 @@ def audit_table() -> rx.Component:
     """Tabla de registros de auditoría."""
     headers = [
         "ID",
-        "Fecha",
-        "Tabla",
+        "Fecha evento",
+        "Tabla afectada",
         "Operación",
         "Registro ID",
-        "Usuario",
-        "Datos anteriores",
-        "Datos nuevos",
+        "Usuario ID",
     ]
 
     def render_row(log: dict):
         return rx.table.row(
-            rx.table.cell(str(log["ID"])),
-            rx.table.cell(str(log["Fecha"])),
-            rx.table.cell(log["Tabla"]),
+            rx.table.cell(log["ID"]),
+            rx.table.cell(log["Fecha_evento"]),
+            rx.table.cell(log["Tabla_afectada"]),
             rx.table.cell(log["Operacion"]),
-            rx.table.cell(str(log["Registro_ID"])),
-            rx.table.cell(log["Usuario"]),
+            rx.table.cell(log["Registro_ID"]),
             rx.table.cell(
-                rx.box(
-                    str(log.get("Datos_anteriores", "")),
-                    max_width="18rem",
-                    white_space="pre-wrap",
-                    font_size="0.75rem",
-                )
-            ),
-            rx.table.cell(
-                rx.box(
-                    str(log.get("Datos_nuevos", "")),
-                    max_width="18rem",
-                    white_space="pre-wrap",
-                    font_size="0.75rem",
+                rx.cond(
+                    log["Users_ID"] != None,
+                    log["Users_ID"],
+                    "-",
                 )
             ),
         )
@@ -188,6 +176,14 @@ def audit_table() -> rx.Component:
         box_shadow="0 8px 16px rgba(15,23,42,0.08)",
     )
 
+
+def audit_pagination() -> rx.Component:
+    """Botones de paginación."""
+    return rx.hstack(
+        rx.button("← Anterior", on_click=AdminAuditState.prev_page),
+        rx.button("Siguiente →", on_click=AdminAuditState.next_page),
+        spacing="4",
+    )
 
 def audit_pagination() -> rx.Component:
     """Botones de paginación."""

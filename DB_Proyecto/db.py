@@ -26,7 +26,7 @@ from mysql.connector import Error
 DB_CONFIG = {
     "host": "localhost",
     "user": "root",
-    "password": "Micumple18deenero.",
+    "password": "123456",
     "database": "lootbox", 
     "port": 3306,
 }
@@ -851,21 +851,20 @@ def run_sql_with_explain(sql: str, params: tuple | None = None, explain: bool = 
 # -----------------------------------------------------------------------------
 # Audit log
 # -----------------------------------------------------------------------------
-
 def get_audit_logs(
     tabla: str | None = None,
     operacion: str | None = None,
     usuario: str | None = None,
-    fecha_desde: str | None = None,  # formato esperado: 'YYYY-MM-DD' o 'YYYY-MM-DD HH:MM:SS'
+    fecha_desde: str | None = None,
     fecha_hasta: str | None = None,
     page: int = 0,
     page_size: int = 20,
 ) -> list[dict]:
     """
-    Obtiene registros del Audit_log con filtros opcionales y paginación.
+    Obtiene registros del Audit_log con paginación.
 
-    Se asume una tabla audit_log con columnas:
-    ID, Tabla, Operacion, Registro_ID, Usuario, Fecha, Datos_anteriores, Datos_nuevos.
+    Usa las columnas reales de la tabla Audit_log:
+    ID, Fecha_evento, Tabla_afectada, Operación, Registro_ID, Users_ID.
     """
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -873,39 +872,39 @@ def get_audit_logs(
     query = """
         SELECT
             ID,
-            Tabla,
-            Operacion,
+            Fecha_evento,
+            Tabla_afectada,
+            `Operación` AS Operacion,
             Registro_ID,
-            Usuario,
-            Fecha,
-            Datos_anteriores,
-            Datos_nuevos
+            Users_ID
         FROM Audit_log
         WHERE 1 = 1
     """
     params: list = []
 
+    # Filtros básicos (opcionales, por si luego los usas en la UI)
     if tabla:
-        query += " AND Tabla = %s"
+        query += " AND Tabla_afectada = %s"
         params.append(tabla)
 
     if operacion:
-        query += " AND Operacion = %s"
+        query += " AND `Operación` = %s"
         params.append(operacion)
 
+    # usuario = Users_ID (por simplicidad lo comparo directo, si quieres LIKE cambia lógica)
     if usuario:
-        query += " AND Usuario LIKE %s"
+        query += " AND CAST(Users_ID AS CHAR) LIKE %s"
         params.append(f"%{usuario}%")
 
     if fecha_desde:
-        query += " AND Fecha >= %s"
+        query += " AND Fecha_evento >= %s"
         params.append(fecha_desde)
 
     if fecha_hasta:
-        query += " AND Fecha <= %s"
+        query += " AND Fecha_evento <= %s"
         params.append(fecha_hasta)
 
-    query += " ORDER BY Fecha DESC LIMIT %s OFFSET %s"
+    query += " ORDER BY Fecha_evento DESC LIMIT %s OFFSET %s"
     offset = page * page_size
     params.extend([page_size, offset])
 

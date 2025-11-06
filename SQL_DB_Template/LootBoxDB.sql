@@ -435,3 +435,133 @@ CREATE TABLE IF NOT EXISTS `Audit_log` (
 SET SQL_MODE=@OLD_SQL_MODE;
 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;
 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;
+
+USE LootBox;
+
+DELIMITER $$
+
+-- ======================
+-- TRIGGERS PARA CUSTOMERS
+-- ======================
+
+DROP TRIGGER IF EXISTS trg_customers_insert_audit $$
+CREATE TRIGGER trg_customers_insert_audit
+AFTER INSERT ON Customers
+FOR EACH ROW
+BEGIN
+  INSERT INTO Audit_log (Fecha_evento, Tabla_afectada, `Operación`, Registro_ID, Users_ID)
+  VALUES (NOW(), 'Customers', 'INSERT', NEW.ID, NULL);
+END $$
+
+DROP TRIGGER IF EXISTS trg_customers_update_audit $$
+CREATE TRIGGER trg_customers_update_audit
+AFTER UPDATE ON Customers
+FOR EACH ROW
+BEGIN
+  INSERT INTO Audit_log (Fecha_evento, Tabla_afectada, `Operación`, Registro_ID, Users_ID)
+  VALUES (NOW(), 'Customers', 'UPDATE', NEW.ID, NULL);
+END $$
+
+DROP TRIGGER IF EXISTS trg_customers_delete_audit $$
+CREATE TRIGGER trg_customers_delete_audit
+AFTER DELETE ON Customers
+FOR EACH ROW
+BEGIN
+  INSERT INTO Audit_log (Fecha_evento, Tabla_afectada, `Operación`, Registro_ID, Users_ID)
+  VALUES (NOW(), 'Customers', 'DELETE', OLD.ID, NULL);
+END $$
+
+
+-- ======================
+-- TRIGGERS PARA PRODUCTS
+-- ======================
+
+DROP TRIGGER IF EXISTS trg_products_insert_audit $$
+CREATE TRIGGER trg_products_insert_audit
+AFTER INSERT ON Products
+FOR EACH ROW
+BEGIN
+  INSERT INTO Audit_log (Fecha_evento, Tabla_afectada, `Operación`, Registro_ID, Users_ID)
+  VALUES (NOW(), 'Products', 'INSERT', NEW.ID, NULL);
+END $$
+
+DROP TRIGGER IF EXISTS trg_products_update_audit $$
+CREATE TRIGGER trg_products_update_audit
+AFTER UPDATE ON Products
+FOR EACH ROW
+BEGIN
+  INSERT INTO Audit_log (Fecha_evento, Tabla_afectada, `Operación`, Registro_ID, Users_ID)
+  VALUES (NOW(), 'Products', 'UPDATE', NEW.ID, NULL);
+END $$
+
+DROP TRIGGER IF EXISTS trg_products_delete_audit $$
+CREATE TRIGGER trg_products_delete_audit
+AFTER DELETE ON Products
+FOR EACH ROW
+BEGIN
+  INSERT INTO Audit_log (Fecha_evento, Tabla_afectada, `Operación`, Registro_ID, Users_ID)
+  VALUES (NOW(), 'Products', 'DELETE', OLD.ID, NULL);
+END $$
+
+
+-- ======================
+-- TRIGGERS PARA ORDENES
+-- ======================
+
+DROP TRIGGER IF EXISTS trg_ordenes_insert_audit $$
+CREATE TRIGGER trg_ordenes_insert_audit
+AFTER INSERT ON Ordenes
+FOR EACH ROW
+BEGIN
+  INSERT INTO Audit_log (Fecha_evento, Tabla_afectada, `Operación`, Registro_ID, Users_ID)
+  VALUES (NOW(), 'Ordenes', 'INSERT', NEW.ID, NULL);
+END $$
+
+DROP TRIGGER IF EXISTS trg_ordenes_update_audit $$
+CREATE TRIGGER trg_ordenes_update_audit
+AFTER UPDATE ON Ordenes
+FOR EACH ROW
+BEGIN
+  INSERT INTO Audit_log (Fecha_evento, Tabla_afectada, `Operación`, Registro_ID, Users_ID)
+  VALUES (NOW(), 'Ordenes', 'UPDATE', NEW.ID, NULL);
+END $$
+
+DROP TRIGGER IF EXISTS trg_ordenes_delete_audit $$
+CREATE TRIGGER trg_ordenes_delete_audit
+AFTER DELETE ON Ordenes
+FOR EACH ROW
+BEGIN
+  INSERT INTO Audit_log (Fecha_evento, Tabla_afectada, `Operación`, Registro_ID, Users_ID)
+  VALUES (NOW(), 'Ordenes', 'DELETE', OLD.ID, NULL);
+END $$
+
+DELIMITER ;
+
+USE LootBox;
+
+INSERT INTO Promotions
+    (Nombre, `Descripción`, Descuento_porcentaje, Fecha_inicio, Fecha_fin, Activa, Categories_ID)
+VALUES
+    -- Promo Funkos 10%
+    ('Promo Funkos 10%', 'Descuento del 10% en todos los Funkos seleccionados.', 10.00,
+     '2025-01-01', '2025-03-31', 1, 1),
+
+    -- Figuras de acción coleccionables
+    ('Figuras Legacy 15%', '15% de descuento en figuras de acción de colección (línea Legacy).', 15.00,
+     '2025-02-01', '2025-04-30', 1, 2),
+
+    -- Trading cards booster
+    ('Booster Cards 2x1', 'Lleva 2 boosters de cartas al precio de 1 en productos seleccionados.', 50.00,
+     '2025-03-01', '2025-03-31', 1, 3),
+
+    -- Model kits fin de semana
+    ('Weekend Model Kits', 'Descuento especial de fin de semana en model kits para armar.', 12.50,
+     '2025-03-15', '2025-03-17', 1, 4),
+
+    -- Retro Games clearance
+    ('Retro Games Sale', 'Liquidación de videojuegos retro con 20% de descuento.', 20.00,
+     '2025-01-15', '2025-02-28', 0, 5),  -- esta ya expiró (Activa=0)
+
+    -- Funkos edición limitada
+    ('Funkos Edición Limitada', '5% de descuento en funkos edición limitada (stock restringido).', 5.00,
+     '2025-02-10', '2025-05-10', 1, 1);

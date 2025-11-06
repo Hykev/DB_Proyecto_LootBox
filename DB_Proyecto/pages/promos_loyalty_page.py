@@ -46,8 +46,9 @@ class PromosLoyaltyState(rx.State):
     # =======================
 
     def load_promotions(self):
-        """Carga las promociones (por ahora, solo las activas)."""
-        self.promotions = db.get_promotions(only_active=True)
+        """Carga TODAS las promociones (sin filtrar por fecha ni estado)."""
+        self.promotions = db.get_promotions(only_active=False)
+
 
     # =======================
     # Movimientos de lealtad
