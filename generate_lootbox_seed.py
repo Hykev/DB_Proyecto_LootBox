@@ -80,8 +80,9 @@ print_progress("Categorías, Proveedores y Productos")
 # 1️⃣ CATEGORÍAS
 # ---------------------------------------------------------
 category_names = [
-    "Tecnología", "Moda", "Hogar", "Deportes", "Juguetes",
-    "Electrónica", "Belleza", "Automotriz", "Mascotas", "Oficina"
+    "Figuras Funko Pop", "Cartas Coleccionables", "Cómics y Mangas", "Ropa Geek",
+    "Videojuegos", "Accesorios de Anime", "Coleccionables de Cine", "Decoración Gamer",
+    "Consolas Retro", "Posters y Arte"
 ]
 
 sql_lines.append("-- CATEGORÍAS\n")
@@ -97,8 +98,16 @@ for name in category_names:
 # ---------------------------------------------------------
 sql_lines.append("\n-- PROVEEDORES\n")
 
+# Proveedores adaptados a marcas geek populares
+geek_suppliers = [
+    "Funko Inc.", "Bandai Spirits", "Nintendo Merch", "Hasbro Collectibles", "Crunchyroll Store",
+    "Marvel Licensing", "DC Universe Goods", "Square Enix Shop", "GameStop Partners", "Hot Topic Co.",
+    "Loungefly", "Good Smile Company", "Kotobukiya", "The Pokémon Company", "LEGO Collectors",
+    "Capcom Gear", "Namco Toys", "Wizards of the Coast", "Ubisoft Merch", "Blizzard Gear Store"
+]
+
 for i in range(NUM_SUPPLIERS):
-    nombre_prov = sql_escape(fake.company())
+    nombre_prov = sql_escape(random.choice(geek_suppliers) + f" #{i+1}")
     contacto = sql_escape(fake.name())
     email = sql_escape(fake.company_email())
     telefono = random_phone()
@@ -113,10 +122,46 @@ for i in range(NUM_SUPPLIERS):
 # ---------------------------------------------------------
 sql_lines.append("\n-- PRODUCTOS\n")
 
+# Temas geek para productos
+geek_brands = [
+    "Marvel", "DC", "Star Wars", "Harry Potter", "Pokémon", "Dragon Ball", "Naruto",
+    "One Piece", "Zelda", "Halo", "Spider-Man", "Batman", "Stranger Things", "Attack on Titan",
+    "Demon Slayer", "League of Legends", "Minecraft", "Elden Ring", "Final Fantasy", "Genshin Impact"
+]
+
+geek_items = [
+    "Funko Pop", "Figura de acción", "Camiseta", "Taza temática", "Sudadera", "Poster",
+    "Cartas coleccionables", "Set de pines", "Consola retro", "Mousepad RGB",
+    "Control Edición Limitada", "Llavero metálico", "Lámpara LED", "Caja misteriosa", "Réplica coleccionable"
+]
+
+# Relación aproximada entre tipo de ítem y categoría
+category_map = {
+    "Funko Pop": 1,  # Figuras Funko Pop
+    "Figura de acción": 1,
+    "Cartas coleccionables": 2,
+    "Cómic": 3,
+    "Manga": 3,
+    "Camiseta": 4,
+    "Sudadera": 4,
+    "Videojuego": 5,
+    "Accesorio": 6,
+    "Poster": 10,
+    "Set de pines": 6,
+    "Lámpara": 8,
+    "Consola retro": 9,
+    "Control Edición Limitada": 9,
+    "Caja misteriosa": 7,
+    "Réplica coleccionable": 7
+}
+
 for i in range(NUM_PRODUCTS):
-    nombre = sql_escape(fake.catch_phrase())
-    precio = round(random.uniform(20, 5000), 2)
-    categoria_id = random.randint(1, NUM_CATEGORIES)
+    brand = random.choice(geek_brands)
+    item = random.choice(geek_items)
+    personaje = fake.first_name()
+    nombre = sql_escape(f"{item} de {brand}: {personaje}")
+    precio = round(random.uniform(10, 800), 2)
+    categoria_id = category_map.get(item, random.randint(1, NUM_CATEGORIES))
     supplier_id = random.randint(1, NUM_SUPPLIERS)
     sql_lines.append(
         f"INSERT INTO Products (`Nombre del producto`, Precio, `Categories_ID`, `Suppliers_ID`) "
@@ -331,6 +376,24 @@ for i in range(NUM_DEVOLUCIONES):
         f"VALUES ('{razon}', '{fecha_dev:%Y-%m-%d %H:%M:%S}', {monto}, {orden_id}, {cliente_id});"
     )
 
+# ---------------------------------------------------------
+# RELACIONAR DEVOLUCIONES CON ORDER_ITEMS
+# ---------------------------------------------------------
+sql_lines.append("\n-- RELACIONAR DEVOLUCIONES CON ORDER_ITEMS\n")
+
+# Elegimos algunas devoluciones para vincular con un item específico
+num_relaciones = min(NUM_DEVOLUCIONES, NUM_ORDERS // 2)  # máximo la mitad de las órdenes
+for i in range(1, num_relaciones + 1):
+    devolucion_id = i
+    orden_id = random.randint(1, NUM_ORDERS)
+    sql_lines.append(
+        f"UPDATE Order_items "
+        f"SET Devoluciones_ID = {devolucion_id} "
+        f"WHERE Ordenes_ID = {orden_id} "
+        f"AND Devoluciones_ID IS NULL "
+        f"LIMIT 1;"
+    )
+
 # =========================================================
 # 🎁 BLOQUE 6 — PROMOTIONS Y LOYALTY MOVEMENTS
 # =========================================================
@@ -342,10 +405,23 @@ print_progress("Promociones y Movimientos de Lealtad")
 # ---------------------------------------------------------
 sql_lines.append("\n-- PROMOTIONS\n")
 
+geek_promos = [
+    "Semana del Anime",
+    "2x1 en Funkos Marvel",
+    "Descuento Gamer Weekend",
+    "Mes de los Superhéroes",
+    "Evento Retro Consolas",
+    "Black Friday Geek",
+    "Colecciona y Gana",
+    "Semana del Cómic",
+    "Festival Otaku",
+    "Cyber LootBox Days"
+]
+
 for i in range(NUM_PROMOTIONS):
-    nombre = f"Promo {i+1}: {sql_escape(fake.catch_phrase())}"
+    nombre = f"{geek_promos[i % len(geek_promos)]}"
     descripcion = sql_escape(fake.sentence(nb_words=10))
-    descuento = round(random.uniform(5, 30), 2)
+    descuento = round(random.uniform(5, 40), 2)
     fecha_inicio = random_date(START_DATE, END_DATE - timedelta(days=30))
     fecha_fin = fecha_inicio + timedelta(days=random.randint(10, 60))
     activa = random.choice([0, 1])
@@ -360,16 +436,20 @@ for i in range(NUM_PROMOTIONS):
 # ---------------------------------------------------------
 sql_lines.append("\n-- LOYALTY MOVEMENTS\n")
 
+geek_loyalty_descriptions = [
+    "Compra de figura Funko",
+    "Canje de puntos por carta rara",
+    "Bonificación por evento de anime",
+    "Devolución de producto coleccionable",
+    "Compra durante promoción gamer",
+    "Participación en torneo de TCG",
+    "Compra anticipada de edición limitada"
+]
+
 for i in range(NUM_LOYALTY_MOVES):
     fecha = random_date()
     puntos = random.randint(-50, 150)  # algunos suman, otros restan
-    descripcion = sql_escape(random.choice([
-        "Compra de producto",
-        "Canje de puntos",
-        "Bonificación por promoción",
-        "Devolución de producto",
-        "Compra en promoción especial"
-    ]))
+    descripcion = sql_escape(random.choice(geek_loyalty_descriptions))
     cliente_id = random.randint(1, NUM_CUSTOMERS)
     orden_id = random.randint(1, NUM_ORDERS)
     sql_lines.append(

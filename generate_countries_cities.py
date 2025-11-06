@@ -37,13 +37,12 @@ sql_lines.append("USE LootBox;\n")
 sql_lines.append("SET FOREIGN_KEY_CHECKS = 0;\n\n")
 sql_lines.append("-- PAISES Y CIUDADES PRINCIPALES DE AMERICA\n")
 
-country_id = 1
 for country, cities in countries_cities.items():
     sql_lines.append(f"\n-- {country}\n")
     sql_lines.append(f"INSERT INTO Countries (Nombre) VALUES ('{country}');")
-    city_values = ",\n".join([f"('{city}', {country_id})" for city in cities])
+    sql_lines.append("SET @country_id = LAST_INSERT_ID();")
+    city_values = ",\n".join([f"('{city}', @country_id)" for city in cities])
     sql_lines.append(f"INSERT INTO Cities (Nombre, Countries_ID) VALUES\n{city_values};\n")
-    country_id += 1
 
 sql_lines.append("\nSET FOREIGN_KEY_CHECKS = 1;")
 
